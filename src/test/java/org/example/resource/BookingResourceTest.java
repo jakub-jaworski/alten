@@ -11,6 +11,14 @@ import static org.hamcrest.Matchers.is;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.example.dto.BookingDto;
 import org.junit.jupiter.api.BeforeAll;
@@ -174,7 +182,47 @@ class BookingResourceTest {
 				.body("size()", is(2));
 	}
 	
-	// TODO: tests for max guests exceeded and for concurrent requests
+	@Test
+	public void test33_postCNoFreeSeats() {
+		RestAssured.given()
+				.contentType(ContentType.JSON)
+				.body(new BookingDto("Conan", 30, nowPlusMonth, LocalTime.now()))
+				.post(PATH)
+				.then()
+				.statusCode(BAD_REQUEST.getStatusCode());
+	}
+	
+	@Test
+	public void test40_postConcurrent() {
+		ExecutorService pool = Executors.newFixedThreadPool(16);
+		List<Callable<String>> tasks = IntStream.rangeClosed('A', 'P')
+				.boxed()
+				.map(c -> "Name " + (char) (int) c)
+				.map(s -> (Callable<String>) () -> executePost(s))
+				.collect(Collectors.toList());
+		
+		try {
+			List<Future<String>> results = pool.invokeAll(tasks);
+			for (Future<String> future: results) {
+				future.get();
+			}
+		} catch (InterruptedException e) {
+			throw new RuntimeException(e);
+		} catch (ExecutionException e) {
+			throw new RuntimeException(e);
+		}
+		pool.shutdown();
+	}
+	
+	private String executePost(String name) {
+		return RestAssured.given()
+				.contentType(ContentType.JSON)
+				.body(new BookingDto(name, 1, nowPlusMonth, LocalTime.now()))
+				.post(PATH)
+				.getBody()
+				.jsonPath()
+				.get("name");
+	}
 	
 	private static String asString(LocalDate date) {
 		try {
